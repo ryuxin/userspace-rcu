@@ -123,11 +123,11 @@ void urcu_adaptative_wake_up(struct urcu_wait_node *wait)
 	cmm_smp_mb();
 	assert(uatomic_read(&wait->state) == URCU_WAIT_WAITING);
 	uatomic_set(&wait->state, URCU_WAIT_WAKEUP);
-	if (!(uatomic_read(&wait->state) & URCU_WAIT_RUNNING)) {
-		if (futex_noasync(&wait->state, FUTEX_WAKE, 1,
-				NULL, NULL, 0) < 0)
-			urcu_die(errno);
-	}
+//	if (!(uatomic_read(&wait->state) & URCU_WAIT_RUNNING)) {
+//		if (futex_noasync(&wait->state, FUTEX_WAKE, 1,
+//				NULL, NULL, 0) < 0)
+//			urcu_die(errno);
+//	}
 	/* Allow teardown of struct urcu_wait memory. */
 	uatomic_or(&wait->state, URCU_WAIT_TEARDOWN);
 }
@@ -139,29 +139,29 @@ void urcu_adaptative_wake_up(struct urcu_wait_node *wait)
 static inline
 void urcu_adaptative_busy_wait(struct urcu_wait_node *wait)
 {
-	unsigned int i;
+//	unsigned int i;
 
 	/* Load and test condition before read state */
 	cmm_smp_rmb();
-	for (i = 0; i < URCU_WAIT_ATTEMPTS; i++) {
+	while (1) {
 		if (uatomic_read(&wait->state) != URCU_WAIT_WAITING)
 			goto skip_futex_wait;
 		caa_cpu_relax();
 	}
-	while (futex_noasync(&wait->state, FUTEX_WAIT, URCU_WAIT_WAITING,
-			NULL, NULL, 0)) {
-		switch (errno) {
-		case EWOULDBLOCK:
-			/* Value already changed. */
-			goto skip_futex_wait;
-		case EINTR:
-			/* Retry if interrupted by signal. */
-			break;	/* Get out of switch. */
-		default:
-			/* Unexpected error. */
-			urcu_die(errno);
-		}
-	}
+//	while (futex_noasync(&wait->state, FUTEX_WAIT, URCU_WAIT_WAITING,
+//			NULL, NULL, 0)) {
+//		switch (errno) {
+//		case EWOULDBLOCK:
+//			/* Value already changed. */
+//			goto skip_futex_wait;
+//		case EINTR:
+//			/* Retry if interrupted by signal. */
+//			break;	/* Get out of switch. */
+//		default:
+//			/* Unexpected error. */
+//			urcu_die(errno);
+//		}
+//	}
 skip_futex_wait:
 
 	/* Tell waker thread than we are running. */
@@ -171,13 +171,13 @@ skip_futex_wait:
 	 * Wait until waker thread lets us know it's ok to tear down
 	 * memory allocated for struct urcu_wait.
 	 */
-	for (i = 0; i < URCU_WAIT_ATTEMPTS; i++) {
+	while (1) {
 		if (uatomic_read(&wait->state) & URCU_WAIT_TEARDOWN)
 			break;
 		caa_cpu_relax();
 	}
-	while (!(uatomic_read(&wait->state) & URCU_WAIT_TEARDOWN))
-		poll(NULL, 0, 10);
+//	while (!(uatomic_read(&wait->state) & URCU_WAIT_TEARDOWN))
+//		poll(NULL, 0, 10);
 	assert(uatomic_read(&wait->state) & URCU_WAIT_TEARDOWN);
 }
 

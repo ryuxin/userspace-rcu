@@ -135,7 +135,7 @@ static inline void _urcu_memb_read_unlock_update_and_wakeup(unsigned long tmp)
 		urcu_memb_smp_mb_slave();
 		_CMM_STORE_SHARED(URCU_TLS(urcu_memb_reader).ctr, tmp - URCU_GP_COUNT);
 		urcu_memb_smp_mb_slave();
-		urcu_common_wake_up_gp(&urcu_memb_gp);
+//		urcu_common_wake_up_gp(&urcu_memb_gp);
 	} else
 		_CMM_STORE_SHARED(URCU_TLS(urcu_memb_reader).ctr, tmp - URCU_GP_COUNT);
 }

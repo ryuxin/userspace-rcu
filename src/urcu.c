@@ -430,11 +430,11 @@ void synchronize_rcu(void)
 	 */
 	urcu_move_waiters(&waiters, &gp_waiters);
 
-	mutex_lock(&rcu_registry_lock);
+/*	mutex_lock(&rcu_registry_lock);
 
 	if (cds_list_empty(&registry))
 		goto out;
-
+*/
 	/*
 	 * All threads should read qparity before accessing data structure
 	 * where new ptr points to. Must be done within rcu_registry_lock
@@ -503,8 +503,8 @@ void synchronize_rcu(void)
 	 * iterates on reader threads.
 	 */
 	smp_mb_master();
-out:
-	mutex_unlock(&rcu_registry_lock);
+//out:
+//	mutex_unlock(&rcu_registry_lock);
 	mutex_unlock(&rcu_gp_lock);
 
 	/*

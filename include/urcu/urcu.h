@@ -31,6 +31,8 @@
  * IBM's contributions to this file may be relicensed under LGPLv2 or later.
  */
 
+#include <urcu/urcu-wait.h>
+
 #if !defined(RCU_MEMBARRIER) && !defined(RCU_SIGNAL) && !defined(RCU_MB)
 #define RCU_MEMBARRIER
 #endif

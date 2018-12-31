@@ -45,6 +45,7 @@ extern "C" {
 #endif
 
 #include <urcu/map/urcu-memb.h>
+#include <urcu/static/urcu-memb.h>
 
 /*
  * Important !
@@ -55,8 +56,6 @@ extern "C" {
  */
 
 #ifdef _LGPL_SOURCE
-
-#include <urcu/static/urcu-memb.h>
 
 /*
  * Mappings for static use of the userspace RCU library.

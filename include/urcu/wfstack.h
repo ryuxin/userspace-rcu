@@ -102,9 +102,10 @@ typedef union {
 	struct cds_wfs_stack *s;
 } __attribute__((__transparent_union__)) cds_wfs_stack_ptr_t;
 
+#include <urcu/static/wfstack.h>
+
 #ifdef _LGPL_SOURCE
 
-#include <urcu/static/wfstack.h>
 
 #define cds_wfs_node_init		_cds_wfs_node_init
 #define cds_wfs_init			_cds_wfs_init

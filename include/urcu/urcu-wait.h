@@ -25,7 +25,6 @@
 
 #include <urcu/uatomic.h>
 #include <urcu/wfstack.h>
-#include "urcu-die.h"
 
 /*
  * Number of busy-loop attempts before waiting on futex for grace period

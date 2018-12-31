@@ -45,7 +45,7 @@
 #include <urcu/tls-compat.h>
 
 #include "urcu-die.h"
-#include "urcu-wait.h"
+#include <urcu/urcu-wait.h>
 #include "urcu-utils.h"
 
 #define URCU_API_MAP

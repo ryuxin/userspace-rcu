@@ -148,6 +148,40 @@ static CDS_LIST_HEAD(registry);
  */
 static DEFINE_URCU_WAIT_QUEUE(gp_waiters);
 
+extern struct urcu_gp *bi_get_gp(void);
+extern struct urcu_wait_queue *bi_get_wait_queue(void);
+extern struct urcu_wait_node *bi_get_init_wait_node(void);
+extern int bi_get_nnode(void);
+extern int bi_get_ncore(void);
+extern unsigned long *bit_get_crt(int nid, int cid);
+extern unsigned long *bi_get_self_ctr(void);
+extern void bi_gp_lock(void);
+extern void bi_gp_unlock(void);
+
+unsigned long **reader_ctr, **sanp_ctr;
+struct urcu_gp *global_gp;
+struct urcu_wait_queue *global_wait;
+int bi_node, bi_core, tot_reader, sanp_reader;
+
+void
+rcu_bi_init(void)
+{
+	int i, j, k = 0;
+	global_gp   = bi_get_gp();
+	global_wait = bi_get_wait_queue();
+	bi_node     = bi_get_nnode();
+	bi_core     = bi_get_ncore();
+	tot_reader  = bi_node*bi_core;
+	sanp_reader = 0;
+        sanp_ctr    = (unsigned long **)malloc(tot_reader*sizeof(unsigned long *));
+	reader_ctr  = (unsigned long **)malloc(tot_reader*sizeof(unsigned long *));
+	for(i=0; i<bi_node; i++) {
+		for(j=0; j<bi_core; j++) {
+			reader_ctr[k++] = bit_get_crt(i, j);
+		}
+	}
+}
+
 static void mutex_lock(pthread_mutex_t *mutex)
 {
 	int ret;
@@ -287,6 +321,38 @@ end:
 	mutex_lock(&rcu_registry_lock);
 }
 
+static void
+bi_wait_for_readers(unsigned long **input_readers, int input_sz, unsigned long **cur_snap_readers)
+{
+	int i, k = 0;
+	unsigned long *ctr;
+
+	for(i=0; i<input_sz; ) {
+		ctr = input_readers[i];
+		switch (urcu_common_reader_state(global_gp, ctr)) {
+		case URCU_READER_ACTIVE_CURRENT:
+			if (cur_snap_readers) {
+				cur_snap_readers[k++] = ctr;
+				i++;
+				break;
+			}
+			/* Fall-through */
+		case URCU_READER_INACTIVE:
+			i++;
+			break;
+		case URCU_READER_ACTIVE_OLD:
+			/*
+			 * Old snapshot. Leaving node in
+			 * input_readers will make us busy-loop
+			 * until the snapshot becomes current or
+			 * the reader becomes inactive.
+			 */
+			break;
+		}
+
+	}
+	sanp_reader = k;
+}
 /*
  * Always called with rcu_registry lock held. Releases this lock between
  * iterations and grabs it again. Holds the lock when it returns.
@@ -400,9 +466,8 @@ static void wait_for_readers(struct cds_list_head *input_readers,
 
 void synchronize_rcu(void)
 {
-	CDS_LIST_HEAD(cur_snap_readers);
-	CDS_LIST_HEAD(qsreaders);
-	DEFINE_URCU_WAIT_NODE(wait, URCU_WAIT_WAITING);
+//	printf("dbg rcu synchronize\n");
+	struct urcu_wait_node *wait;
 	struct urcu_waiters waiters;
 
 	/*
@@ -413,22 +478,23 @@ void synchronize_rcu(void)
 	 * orders prior memory accesses of threads put into the wait
 	 * queue before their insertion into the wait queue.
 	 */
-	if (urcu_wait_add(&gp_waiters, &wait) != 0) {
+	wait = bi_get_init_wait_node();
+	if (urcu_wait_add(global_wait, wait) != 0) {
 		/* Not first in queue: will be awakened by another thread. */
-		urcu_adaptative_busy_wait(&wait);
+		urcu_adaptative_busy_wait(wait);
 		/* Order following memory accesses after grace period. */
 		cmm_smp_mb();
 		return;
 	}
 	/* We won't need to wake ourself up */
-	urcu_wait_set_state(&wait, URCU_WAIT_RUNNING);
+	urcu_wait_set_state(wait, URCU_WAIT_RUNNING);
 
-	mutex_lock(&rcu_gp_lock);
+	bi_gp_lock();
 
 	/*
 	 * Move all waiters into our local queue.
 	 */
-	urcu_move_waiters(&waiters, &gp_waiters);
+	urcu_move_waiters(&waiters, global_wait);
 
 /*	mutex_lock(&rcu_registry_lock);
 
@@ -448,7 +514,8 @@ void synchronize_rcu(void)
 	 * wait_for_readers() can release and grab again rcu_registry_lock
 	 * interally.
 	 */
-	wait_for_readers(&registry, &cur_snap_readers, &qsreaders);
+	bi_wait_for_readers(reader_ctr, tot_reader, sanp_ctr);
+//	wait_for_readers(&registry, &cur_snap_readers, &qsreaders);
 
 	/*
 	 * Must finish waiting for quiescent state for original parity before
@@ -467,7 +534,7 @@ void synchronize_rcu(void)
 	cmm_smp_mb();
 
 	/* Switch parity: 0 -> 1, 1 -> 0 */
-	CMM_STORE_SHARED(rcu_gp.ctr, rcu_gp.ctr ^ URCU_GP_CTR_PHASE);
+	CMM_STORE_SHARED(global_gp->ctr, global_gp->ctr ^ URCU_GP_CTR_PHASE);
 
 	/*
 	 * Must commit rcu_gp.ctr update to memory before waiting for quiescent
@@ -490,12 +557,13 @@ void synchronize_rcu(void)
 	 * wait_for_readers() can release and grab again rcu_registry_lock
 	 * interally.
 	 */
-	wait_for_readers(&cur_snap_readers, NULL, &qsreaders);
+	bi_wait_for_readers(sanp_ctr, sanp_reader, NULL);
+//	wait_for_readers(&cur_snap_readers, NULL, &qsreaders);
 
 	/*
 	 * Put quiescent reader list back into registry.
 	 */
-	cds_list_splice(&qsreaders, &registry);
+//	cds_list_splice(&qsreaders, &registry);
 
 	/*
 	 * Finish waiting for reader threads before letting the old ptr
@@ -505,7 +573,7 @@ void synchronize_rcu(void)
 	smp_mb_master();
 //out:
 //	mutex_unlock(&rcu_registry_lock);
-	mutex_unlock(&rcu_gp_lock);
+	bi_gp_unlock();
 
 	/*
 	 * Wakeup waiters only after we have completed the grace period
@@ -513,6 +581,7 @@ void synchronize_rcu(void)
 	 * period have been issued.
 	 */
 	urcu_wake_all_waiters(&waiters);
+	sanp_reader = 0;
 }
 URCU_ATTR_ALIAS(urcu_stringify(synchronize_rcu))
 void alias_synchronize_rcu();
@@ -610,6 +679,7 @@ void rcu_sys_membarrier_init(void)
 
 void rcu_init(void)
 {
+	printf("dbg rcu init RCU_MEMBARRIER\n");
 	if (init_done)
 		return;
 	init_done = 1;

@@ -83,6 +83,8 @@ static inline void urcu_memb_smp_mb_slave(void)
 extern struct urcu_gp urcu_memb_gp;
 
 extern DECLARE_URCU_TLS(struct urcu_reader, urcu_memb_reader);
+extern unsigned long *bi_get_self_ctr(void);
+extern struct urcu_gp *global_gp;
 
 /*
  * Helper for _rcu_read_lock().  The format of urcu_memb_gp.ctr (as well as
@@ -91,13 +93,13 @@ extern DECLARE_URCU_TLS(struct urcu_reader, urcu_memb_reader);
  * or URCU_GP_CTR_PHASE.  The smp_mb_slave() ensures that the accesses in
  * _rcu_read_lock() happen before the subsequent read-side critical section.
  */
-static inline void _urcu_memb_read_lock_update(unsigned long tmp)
+static inline void _urcu_memb_read_lock_update(unsigned long tmp, unsigned long *ctr)
 {
 	if (caa_likely(!(tmp & URCU_GP_CTR_NEST_MASK))) {
-		_CMM_STORE_SHARED(URCU_TLS(urcu_memb_reader).ctr, _CMM_LOAD_SHARED(urcu_memb_gp.ctr));
+		_CMM_STORE_SHARED(*ctr, _CMM_LOAD_SHARED(global_gp->ctr));
 		urcu_memb_smp_mb_slave();
 	} else
-		_CMM_STORE_SHARED(URCU_TLS(urcu_memb_reader).ctr, tmp + URCU_GP_COUNT);
+		_CMM_STORE_SHARED(*ctr, tmp + URCU_GP_COUNT);
 }
 
 /*
@@ -113,12 +115,15 @@ static inline void _urcu_memb_read_lock_update(unsigned long tmp)
 static inline void _urcu_memb_read_lock(void)
 {
 	unsigned long tmp;
+	unsigned long *ctr;
+//	printf("dbg read lock memb\n");
 
-	urcu_assert(URCU_TLS(urcu_memb_reader).registered);
+//	urcu_assert(URCU_TLS(urcu_memb_reader).registered);
 	cmm_barrier();
-	tmp = URCU_TLS(urcu_memb_reader).ctr;
+	ctr = bi_get_self_ctr();
+	tmp = *ctr;
 	urcu_assert((tmp & URCU_GP_CTR_NEST_MASK) != URCU_GP_CTR_NEST_MASK);
-	_urcu_memb_read_lock_update(tmp);
+	_urcu_memb_read_lock_update(tmp, ctr);
 }
 
 /*
@@ -129,15 +134,15 @@ static inline void _urcu_memb_read_lock(void)
  * The second smp_mb_slave() call ensures that we write to rcu_reader.ctr
  * before reading the update-side futex.
  */
-static inline void _urcu_memb_read_unlock_update_and_wakeup(unsigned long tmp)
+static inline void _urcu_memb_read_unlock_update_and_wakeup(unsigned long tmp, unsigned long *ctr)
 {
 	if (caa_likely((tmp & URCU_GP_CTR_NEST_MASK) == URCU_GP_COUNT)) {
 		urcu_memb_smp_mb_slave();
-		_CMM_STORE_SHARED(URCU_TLS(urcu_memb_reader).ctr, tmp - URCU_GP_COUNT);
+		_CMM_STORE_SHARED(*ctr, tmp - URCU_GP_COUNT);
 		urcu_memb_smp_mb_slave();
 //		urcu_common_wake_up_gp(&urcu_memb_gp);
 	} else
-		_CMM_STORE_SHARED(URCU_TLS(urcu_memb_reader).ctr, tmp - URCU_GP_COUNT);
+		_CMM_STORE_SHARED(*ctr, tmp - URCU_GP_COUNT);
 }
 
 /*
@@ -148,11 +153,14 @@ static inline void _urcu_memb_read_unlock_update_and_wakeup(unsigned long tmp)
 static inline void _urcu_memb_read_unlock(void)
 {
 	unsigned long tmp;
+	unsigned long *ctr;
+//	printf("dbg read unlock memb\n");
 
-	urcu_assert(URCU_TLS(urcu_memb_reader).registered);
-	tmp = URCU_TLS(urcu_memb_reader).ctr;
+//	urcu_assert(URCU_TLS(urcu_memb_reader).registered);
+	ctr = bi_get_self_ctr();
+	tmp = *ctr;
 	urcu_assert(tmp & URCU_GP_CTR_NEST_MASK);
-	_urcu_memb_read_unlock_update_and_wakeup(tmp);
+	_urcu_memb_read_unlock_update_and_wakeup(tmp, ctr);
 	cmm_barrier();	/* Ensure the compiler does not reorder us with mutex */
 }
 

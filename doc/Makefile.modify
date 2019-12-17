@@ -1,0 +1,8 @@
+.PHONY: all install
+	
+all:
+	echo "make doc"
+
+install:
+	echo "install doc"
+

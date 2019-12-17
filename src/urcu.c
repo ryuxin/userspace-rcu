@@ -216,6 +216,7 @@ static void mutex_unlock(pthread_mutex_t *mutex)
 #ifdef RCU_MEMBARRIER
 static void smp_mb_master(void)
 {
+	//printf("dbg RCU_MEMB\n");
 	if (caa_likely(urcu_memb_has_sys_membarrier)) {
 		if (membarrier(urcu_memb_has_sys_membarrier_private_expedited ?
 				MEMBARRIER_CMD_PRIVATE_EXPEDITED :
@@ -230,6 +231,7 @@ static void smp_mb_master(void)
 #ifdef RCU_MB
 static void smp_mb_master(void)
 {
+//	printf("dbg RCU_MB\n");
 	cmm_smp_mb();
 }
 #endif
@@ -279,6 +281,7 @@ static void force_mb_all_readers(void)
 
 static void smp_mb_master(void)
 {
+//	printf("dbg RCU_SIGNAL\n");
 	force_mb_all_readers();
 }
 #endif /* #ifdef RCU_SIGNAL */
@@ -321,12 +324,22 @@ end:
 	mutex_lock(&rcu_registry_lock);
 }
 
+static inline uint64_t
+dbg_local_rdtsc(void)
+{
+	unsigned long a, d;
+	__asm__ __volatile__ ("rdtscp" : "=a" (a), "=d" (d) : : "ebx", "ecx");
+	return ((uint64_t)d << 32) | (uint64_t)a;
+}
+
 static void
 bi_wait_for_readers(unsigned long **input_readers, int input_sz, unsigned long **cur_snap_readers)
 {
 	int i, k = 0;
 	unsigned long *ctr;
+//	unsigned long s, e;
 
+//	s = dbg_local_rdtsc();
 	for(i=0; i<input_sz; ) {
 		ctr = input_readers[i];
 		switch (urcu_common_reader_state(global_gp, ctr)) {
@@ -352,6 +365,7 @@ bi_wait_for_readers(unsigned long **input_readers, int input_sz, unsigned long *
 
 	}
 	sanp_reader = k;
+//	e = dbg_local_rdtsc();
 }
 /*
  * Always called with rcu_registry lock held. Releases this lock between
@@ -469,6 +483,7 @@ void synchronize_rcu(void)
 //	printf("dbg rcu synchronize\n");
 	struct urcu_wait_node *wait;
 	struct urcu_waiters waiters;
+//	unsigned long s, e;
 
 	/*
 	 * Add ourself to gp_waiters queue of threads awaiting to wait
@@ -570,7 +585,9 @@ void synchronize_rcu(void)
 	 * being freed. Must be done within rcu_registry_lock because it
 	 * iterates on reader threads.
 	 */
+//	s = dbg_local_rdtsc();
 	smp_mb_master();
+//	e = dbg_local_rdtsc();
 //out:
 //	mutex_unlock(&rcu_registry_lock);
 	bi_gp_unlock();
@@ -582,6 +599,7 @@ void synchronize_rcu(void)
 	 */
 	urcu_wake_all_waiters(&waiters);
 	sanp_reader = 0;
+//	printf("dbg nreader %lu\n", e-s);
 }
 URCU_ATTR_ALIAS(urcu_stringify(synchronize_rcu))
 void alias_synchronize_rcu();
